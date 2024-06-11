@@ -1,0 +1,26 @@
+services:
+  nginx:
+    image: nginx@sha256:0f04e4f646a3f14bf31d8bc8d885b6c951fdcf42589d06845f64d18aec6a3c4d
+    restart: always
+    volumes:
+      - "${PWD}/mounts/nginx/html:/var/www/html:ro"
+      - "${PWD}/mounts/nginx/certs:/etc/nginx/certs:ro"
+      - "${PWD}/mounts/nginx/conf/nginx.conf:/etc/nginx/nginx.conf"
+    ports:
+      - "80:80"
+      - "443:443"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    links:
+    - fpm
+  fpm:
+    image: php:fpm@sha256:245576beb9a87cecac8027e92866d8ed37687023d1efea79a7fc34828d228797
+    restart: always
+    ports:
+        - ":9000"
+    volumes:
+      - "${PWD}/mounts/nginx/html:/var/www/html:ro"

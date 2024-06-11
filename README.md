@@ -1,48 +1,79 @@
-# What is this? #
-This neat script provides a little fake API to unlock all premium/enterprise/enterprise+ (here called ultimate) features of your own Pritunl VPN server. If Pritunl wouldn't be mostly free already, you could call this a crack. An Open Source crack.
+### Назначение
+Адаптация проекта https://github.com/simonmicro/Pritunl-Fake-API для развертывания API сервера Pritunl на том же сервере, где запущен VPN сервер Pritunl.
 
-## How to setup (server) ##
-Take a look into the `server` folder: You _could_ use the Pritunl source there (or just download this specific version from their GitHub repo) to compile a guaranteed compatible version for this API or just download any other version of the Pritunl server and try your luck.
-Then you'll need to execute the `setup.py` script (preferable as `root`, as it needs to modify the Pritunl files directly).
-After that log in into the dashboard - there should be a "Update Notification":
+Протестировано на 
+- Ubuntu Server 22.04 LTS
+- pritunl/now 1.32.3552.76-0ubuntu1~jammy 
 
-![login-msg](docs/login-msg.png)
+при использовании клиента OpenVPN. Использование официального клиента Pritunl не тестировалось. 
 
-Now try to enter any serial key for your subscription and just follow the hints/notes if you enter an invalid command:
+### Как это работает
+1. В Docker запускается вебсервер с FakeAPI сервера лицензирования Pritunl
+2. В конфигурационных файлах Pritunl подменяется адрес API сервера лиценизирования Pritunl на `pritunl-fakeapi.local`
+3. В /etc/hosts вносится запись `127.0.0.1 pritunl-fakeapi.local` 
+4. Используются самоподписанные сертификаты для обеспечения TLS между Pritunl и FakeAPI сервером лицензирования
 
-![enter-something](docs/enter-something.png)
+### Требования
+1. Ubuntu Server 22.04 LTS
+2. Установленный Docker Compose
+3. Установленный Pritunl с бесплатной лицензией
+4. Порт веб интерфейса Pritunl сменен со стандартного 443 на любой свободный, кроме 80 и 443
 
-A valid command would be `bad premium` or `active ultimate`:
+### Установка
+1. (Рекомендуется) зафиксировать версию Pritunl
+```
+sudo apt-mark hold pritunl*
+```
+2. Клонировать репозиторий /opt/pritunl-fakeapi
+```
+sudo mkdir /opt/pritunl-fakeapi -p && \
+sudo chown ${USER}:${USER} /opt/pritunl-fakeapi && \
+git clone https://github.com/nd4y/Pritunl-Fake-API.git /opt/pritunl-fakeapi && \
+cd /opt/pritunl-fakeapi
+```
+3. (Рекомендуется) сгенерировать сертификаты удостоверяющего центра и сервера. (команды для выпуска сертификатов протестированы на OpenSSL 1.1.1w) 
+    1. Перейти в каталог `cd /opt/pritunl-fakeapi/mounts/nginx/certs` и удалить имеющиеся сертификаты `rm -f *.pem`
+    2. Выпустить сертификат удостоверяющго центра
+    ```
+    openssl req -x509 -newkey rsa:4096 -keyout ca.key.pem -out ca.crt.pem -sha256 -days 3650 -nodes -subj "/CN=Self-Signed Root Certification Authority" 
+    ```
+    3. Выпустить запрос на сертификат сервера
+    ```
+    openssl req -newkey rsa:4096 -nodes -days 3650 -keyout tls.key.pem -out tls.req.pem -subj "/CN=Self-Signed Server Certificate" -reqexts SAN -config <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:pritunl-fakeapi.local"))
+    ```
+    4. Подписать запрос на сертификат сервера сертификатом удоствоверяющего центра
+    ```
+    openssl x509 -req -in tls.req.pem -CA ca.crt.pem -CAkey ca.key.pem -out tls.crt.pem -days 3650 -extensions SAN -extfile  <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:pritunl-fakeapi.local"))
+    ```
+    5. Удалить файл приватного ключа удостоверяющего центра и файл запроса сертификата сервера 
+    ```
+    rm -f ca.key.pem tls.req.pem
+    ```
 
-![active-ultimate](docs/active-ultimate.png)
+4. Запустить контейнеры 
+```
+cd /opt/pritunl && docker compose up -d
+```
+5. Установить сертификат удостоверяющего центра в доверенные для Pritunl 
+```
+cat ca.crt.pem >> /usr/lib/pritunl/usr/lib/python3.9/site-packages/certifi/cacert.pem
+```
+6. Отключить использование VPN сервером Pritunl порта 80/TCP 
+```
+sudo pritunl set app.redirect_server false
+```
+7. Добавить запись в /etc/hosts
+```
+echo "127.0.0.1 pritunl-fakeapi.local" | sudo tee -a /etc/hosts
+```
+8. Запустить скрипт setup.py 
+```
+chmod +x /opt/pritunl-fakeapi/setup.py && sudo /opt/pritunl-fakeapi/setup.py
+```
+В скрипте выбрать [I]nstall и в качестве "new API endpoint" указать `pritunl-fakeapi.local`
 
-If everything worked, your subscription should now look like this:
-
-![done](docs/done.png)
-
-Make sure to support the developers by buying the choosen subscription for your enterprise or company!
-
-## How to setup (api) (optional) ##
-This is _optional_. You can simply use the default instance of this API (host is noted inside the `setup.py` script) and profit from "automatic" updates.
-
-## API Only: Using Apache
-Just transfer the `www` files inside a public accessible root-folder on your _dedicated_ Apache webserver (really everthing with PHP support works). Also make sure your instance has a valid SSL-certificate (Let's encrypt is enough), otherwise it may won't work.
-An example Apache install process can be found [here](docs/apache/install.md). If you want to test your instance, just open the public accessible URI in your browser and append `/healthz` to it - if you see some JSON with the text, then everything worked!
-
-### API Only: Using Nginx
-Just transfer the `www` files inside a public accessible root-folder on your _dedicated_ Nginx webserver (really everthing with PHP support works). Also make sure your instance has a valid SSL-certificate (Let's encrypt is enough), otherwise it may won't work.
-See the documentation in [Nginx Install](docs/nginx/install.md).
-
-### API Only: Using Docker
-See the documentation in [Docker Install](docs/docker/api-only-install.md).
-
-### Fully Patched Pritunl: Using Docker
-This api has also its own docker image. Take a look into the `docker` folder and enjoy!
-
-See the documentation in [Patched Pritunl Docker Install](docs/docker/pritunl-patched-install.md).
-
-### Nett2Know ###
-* This modification will also block any communication to the Pritunl servers - so no calling home :)
-* SSO will not work with this api version! As Pritunls own authentication servers handle the whole SSO stuff, track instance ids and verify users, I won't implement this part for privacy concerns (and also this would need to be securly implemented and a database).
-
-Have fun with your new premium/enterprise/ultimate Pritunl instance!
+9. Перезапустить Pritunl
+```
+sudo systemctl restart pritunl
+```
+10. В веб интерфейсе Pritunl активировать подписку, введя ключ активации `active ultimate`
