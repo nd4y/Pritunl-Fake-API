@@ -1,20 +1,19 @@
 ### Назначение
 Адаптация проекта https://github.com/simonmicro/Pritunl-Fake-API для развертывания API сервера Pritunl на том же сервере, где запущен VPN сервер Pritunl.
 
-Протестировано на 
-- Ubuntu Server 22.04 LTS
-- pritunl/now 1.32.3552.76-0ubuntu1~jammy 
-
-при использовании клиента OpenVPN. Использование официального клиента Pritunl не тестировалось. 
-
 ### Как это работает
 1. В Docker запускается вебсервер с FakeAPI сервера лицензирования Pritunl
 2. В конфигурационных файлах Pritunl подменяется адрес API сервера лиценизирования Pritunl на `pritunl-fakeapi.local`
 3. В /etc/hosts вносится запись `127.0.0.1 pritunl-fakeapi.local` 
 4. Используются самоподписанные сертификаты для обеспечения TLS между Pritunl и FakeAPI сервером лицензирования
 
+### Протестировано на версиях 
+- Ubuntu Server 22.04 LTS pritunl/now 1.32.3552.76-0ubuntu1~jammy
+- Ubuntu Server 20.04 LTS pritunl/now 1.32.3504.68-0ubuntu1~focal 
+
+при использовании клиента OpenVPN. Использование официального клиента Pritunl не тестировалось. 
 ### Требования
-1. Ubuntu Server 22.04 LTS
+1. Версия ОС и пакета из списка [Протестировано на версиях](#протестировано-на-версиях) 
 2. Установленный Docker и Docker Compose в соотвествии с документацией https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository . Пакеты docker.io и docker-compose не поддерживаются. 
 3. Пользователь с доступом к Docker без sudo `sudo usermod -aG docker ${USER}`
 4. Установленный Pritunl с бесплатной лицензией
