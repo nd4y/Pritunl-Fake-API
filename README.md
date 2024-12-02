@@ -1,78 +1,57 @@
 ### Назначение
-Адаптация проекта https://github.com/simonmicro/Pritunl-Fake-API для развертывания API сервера Pritunl на том же сервере, где запущен VPN сервер Pritunl.
+Адаптация проекта https://github.com/simonmicro/Pritunl-Fake-API для развертывания Pritunl + Pritunl FakeAPI с помощью Docker Compose
 
 ### Как это работает
-1. В Docker запускается вебсервер с FakeAPI сервера лицензирования Pritunl
-2. В конфигурационных файлах Pritunl подменяется адрес API сервера лиценизирования Pritunl на `pritunl-fakeapi.local`
-3. В /etc/hosts вносится запись `127.0.0.1 pritunl-fakeapi.local` 
-4. Используются самоподписанные сертификаты для обеспечения TLS между Pritunl и FakeAPI сервером лицензирования
+1. В контейнерах Docker запускаются: 
+   1. `pritunl-server` сам VPN сервер + установленная в контейнере MongoDB
+   2. `pritunl-fakeapi-nginx` Реализация API сервера лицензирования Pritunl 
+   3. `pritunl-fakeapi-fpm` Реализация API сервера лицензирования Pritunl
+2. В docker compose подменяется адреса серверов лицензирования `app.pritunl.com` и `auth.pritunl.com` на адрес контейнера с nginx
+3. Генерируются сертификат CA и серверные сертификаты для доменных имен `app.pritunl.com` и `auth.pritunl.com`. CA сертификат добавляется в доверенные в контейнере `pritunl-server`. Серверные сертификаты добавляются в качестве серверных в контейнер `pritunl-fakeapi-nginx`
+4. Используются сгенерированные самоподписанные сертификаты для обеспечения TLS между Pritunl и FakeAPI сервером лицензирования
 
-### Протестировано на версиях 
-- Ubuntu Server 22.04 LTS pritunl/now 1.32.3552.76-0ubuntu1~jammy
-- Ubuntu Server 20.04 LTS pritunl/now 1.32.3504.68-0ubuntu1~focal 
+### Протестировано
+Только использование OpenVPN клиента. Работа с официальным клиентом Pritunl не тестировалась.
 
-при использовании клиента OpenVPN. Использование официального клиента Pritunl не тестировалось. 
 ### Требования
-1. Версия ОС и пакета из списка [Протестировано на версиях](#протестировано-на-версиях) 
-2. Установленный Docker и Docker Compose в соотвествии с документацией https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository . Пакеты docker.io и docker-compose не поддерживаются. 
-3. Пользователь с доступом к Docker без sudo `sudo usermod -aG docker ${USER}`
-4. Установленный Pritunl с бесплатной лицензией
-5. Порт веб интерфейса Pritunl сменен со стандартного 443 на любой свободный, кроме 80 и 443
+1. Установленный Docker и Docker Compose в соотвествии с документацией https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository . Пакеты docker.io и docker-compose не поддерживаются. 
+2. Пользователь с доступом к Docker без sudo `sudo usermod -aG docker ${USER}`
 
 ### Установка
-1. (Рекомендуется) зафиксировать версию Pritunl
-```
-sudo apt-mark hold pritunl*
-```
-2. Клонировать репозиторий /opt/pritunl-fakeapi . Можно использовать любой путь на сервере. /opt/pritunl-fakeapi используется в примерах команд ниже.
+1. Клонировать репозиторий /opt/pritunl-fakeapi . Можно использовать любой путь на сервере. /opt/pritunl-fakeapi используется в примерах команд ниже.
 ```
 sudo mkdir /opt/pritunl-fakeapi -p && \
 sudo chown ${USER}:${USER} /opt/pritunl-fakeapi && \
 git clone https://github.com/nd4y/Pritunl-Fake-API.git /opt/pritunl-fakeapi
 ```
-3. (Рекомендуется) сгенерировать сертификаты удостоверяющего центра и сервера. (команды для выпуска сертификатов протестированы на OpenSSL 1.1.1w (Debian 10) и OpenSSL 1.1.1f (Ubuntu 22.04 LTS) 
-    1. Перейти в каталог и удалить имеющиеся сертификаты `cd /opt/pritunl-fakeapi/mounts/nginx/certs && rm -f *.pem`
+2. Рекомендуется сгенерировать сертификаты удостоверяющего центра и сервера. Вы можете использовать уже сгененированные сертификаты из этого репозитория, однако, это может негативно отразиться на безопастности решения. Рекомендуется генерировать новые сертификаты для каждой инсталляции. Команды для выпуска сертификатов протестированы на OpenSSL 1.1.1w (Debian 11) и OpenSSL 1.1.1f (Ubuntu 22.04 LTS).
+    1. Перейти в каталог и удалить имеющиеся сертификаты `cd /opt/pritunl-fakeapi/build/certs && rm -f *.pem`
     2. Выпустить сертификат удостоверяющго центра
     ```
     openssl req -x509 -newkey rsa:4096 -keyout ca.key.pem -out ca.crt.pem -sha256 -days 3650 -nodes -subj "/CN=Self-Signed Root Certification Authority" 
     ```
     3. Выпустить запрос на сертификат сервера
     ```
-    openssl req -newkey rsa:4096 -nodes -days 3650 -keyout tls.key.pem -out tls.req.pem -subj "/CN=Self-Signed Server Certificate" -reqexts SAN -config <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:pritunl-fakeapi.local"))
+    openssl req -newkey rsa:4096 -nodes -days 3650 -keyout tls.key.pem -out tls.req.pem -subj "/CN=Self-Signed Server Certificate" -reqexts SAN -config <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:app.pritunl.com,DNS:auth.pritunl.com"))
     ```
     4. Подписать запрос на сертификат сервера сертификатом удоствоверяющего центра
     ```
-    openssl x509 -req -in tls.req.pem -CA ca.crt.pem -CAkey ca.key.pem -out tls.crt.pem -CAcreateserial -days 3650 -extensions SAN -extfile  <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:pritunl-fakeapi.local"))
+    openssl x509 -req -in tls.req.pem -CA ca.crt.pem -CAkey ca.key.pem -out tls.crt.pem -CAcreateserial -days 3650 -extensions SAN -extfile  <(printf "[SAN]\nsubjectAltName=DNS:app.pritunl.com,DNS:auth.pritunl.com")
     ```
     5. Удалить файл приватного ключа удостоверяющего центра, файл запроса сертификата сервера и srl файл.
     ```
     rm -f ca.key.pem tls.req.pem ca.crt.srl
     ```
+    В каталоге `/opt/pritunl-fakeapi/build/certs` должны быть 3 файла:
+       1. ca.crt.pem - Сертификат CA, выпустивший tls.crt.pem. При сборке копируется в контейнер `pritunl-server`
+       2. tls.crt.pem - Сертификат, подписанный ca.crt.pem и имеющий в SAN DNS:app.pritunl.com,DNS:auth.pritunl.com . При сборке копируется в контейнер `pritunl-fakeapi-nginx`
+       3. tls.key.pem - Закрытый ключ к сертификату подписанному ca.crt.pem и имеющий в SAN DNS:app.pritunl.com,DNS:auth.pritunl.com . При сборке копируется в контейнер `pritunl-fakeapi-nginx`
 
-4. Отключить использование VPN сервером Pritunl порта 80/TCP 
+3. Запустить контейнеры 
 ```
-sudo pritunl set app.redirect_server false
+cd /opt/pritunl-fakeapi && docker compose up -d --build
 ```
-5. Запустить контейнеры 
-```
-cd /opt/pritunl-fakeapi && docker compose up -d
-```
-6. Установить сертификат удостоверяющего центра в доверенные для Pritunl 
-```
-cat /opt/pritunl-fakeapi/mounts/nginx/certs/ca.crt.pem | sudo tee -a /usr/lib/pritunl/usr/lib/python3.9/site-packages/certifi/cacert.pem
-```
-7. Добавить запись в /etc/hosts
-```
-echo "127.0.0.1 pritunl-fakeapi.local" | sudo tee -a /etc/hosts
-```
-8. Запустить скрипт setup.py 
-```
-chmod +x /opt/pritunl-fakeapi/setup.py && sudo /opt/pritunl-fakeapi/setup.py
-```
-В скрипте выбрать [I]nstall и в качестве "new API endpoint" указать `pritunl-fakeapi.local`
+4. Получить первичные логин и пароль для входа, выполнив команду `docker compose exec pritunl pritunl default-password`
+5. Перейти в Web Interface Pritunl `http://SERVER_IP:80`, введя логин и пароль, полученные на предыдущем шаге, где SERVER_IP - IP адрес (или доменное имя) хоста, на который выполнялась установка.
+6. В веб интерфейсе Pritunl активировать подписку, введя ключ активации `active ultimate`
 
-9. Перезапустить Pritunl
-```
-sudo systemctl restart pritunl
-```
-10.  В веб интерфейсе Pritunl активировать подписку, введя ключ активации `active ultimate`
