@@ -18,7 +18,7 @@
 2. Пользователь с доступом к Docker без sudo `sudo usermod -aG docker ${USER}`
 
 ### Установка
-1. Клонировать репозиторий /opt/pritunl-fakeapi . Можно использовать любой путь на сервере. /opt/pritunl-fakeapi используется в примерах команд ниже.
+1. Клонировать репозиторий в /opt/pritunl-fakeapi . Можно использовать любой путь на сервере. /opt/pritunl-fakeapi используется в примерах команд ниже.
 ```
 sudo mkdir /opt/pritunl-fakeapi -p && \
 sudo chown ${USER}:${USER} /opt/pritunl-fakeapi && \
