@@ -77,7 +77,7 @@ services:
     ports:
       - '80:80' # WebUI
       - '443:443' # WebUI
-      - '62001-62099:62001-62999/udp' # ovpn
+      - '62001-62099:62001-62099/udp' # ovpn
     healthcheck:
       test: ["CMD", "curl", "-f", "-k", "-L", "http://localhost:80/"]
       interval: 10s
