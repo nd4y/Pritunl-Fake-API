@@ -1,14 +1,30 @@
+networks:
+  pritunl-network:
+    driver: bridge
+    external: false
+
 services:
   nginx:
-    image: nginx@sha256:0f04e4f646a3f14bf31d8bc8d885b6c951fdcf42589d06845f64d18aec6a3c4d
+    container_name: pritunl-fakeapi-nginx
+    build:
+        context: ./build
+        dockerfile: nginx.dockerfile
+        args:
+            BASE_IMAGE: ${NGINX_IMAGE_TAG}
     restart: always
-    volumes:
-      - "${PWD}/mounts/nginx/html:/var/www/html:ro"
-      - "${PWD}/mounts/nginx/certs:/etc/nginx/certs:ro"
-      - "${PWD}/mounts/nginx/conf/nginx.conf:/etc/nginx/nginx.conf"
-    ports:
-      - "80:80"
-      - "443:443"
+    privileged: false
+    environment: []
+    volumes: []
+    secrets: []
+    networks:
+      pritunl-network:
+        aliases:       
+          - app.pritunl.com
+          - auth.pritunl.com
+    ports: []
+    depends_on: 
+      fpm:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 10s
@@ -17,10 +33,54 @@ services:
       start_period: 5s
     links:
     - fpm
+
   fpm:
-    image: php:fpm@sha256:245576beb9a87cecac8027e92866d8ed37687023d1efea79a7fc34828d228797
+    container_name: pritunl-fakeapi-fpm
+    build:
+        context: ./build
+        dockerfile: fpm.dockerfile
+        args:
+            BASE_IMAGE: ${FPM_IMAGE_TAG}
     restart: always
-    ports:
-        - ":9000"
+    privileged: false
+    environment: []
+    volumes: []
+    secrets: []
+    networks:
+      pritunl-network:
+    ports: []
+    depends_on: []
+    healthcheck:
+          test: ["CMD-SHELL", "timeout 5 bash -c 'cat < /dev/null > /dev/tcp/localhost/9000' || exit 1"]
+          interval: 10s
+          timeout: 5s
+          retries: 3
+          start_period: 1s
+
+  pritunl:
+    container_name: pritunl-server
+    build:
+        context: ./build
+        dockerfile: pritunl.dockerfile
+        args:
+            BASE_IMAGE: ${PRITUNL_IMAGE_TAG}
+    privileged: true
+    restart: always
+    environment: []
     volumes:
-      - "${PWD}/mounts/nginx/html:/var/www/html:ro"
+      - ${PWD}/mounts/pritunl/mongodb:/var/lib/mongodb
+      - ${PWD}/mounts/pritunl/config/pritunl:/var/lib/pritunl
+    secrets: []
+
+    networks:
+      pritunl-network:
+    ports:
+      - '80:80' # WebUI
+      - '443:443' # WebUI
+      - '62001-62099:62001-62099/udp' # ovpn
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "-L", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
